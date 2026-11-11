@@ -2,6 +2,6 @@
   "title": "Coordinates and Perspective Projection in Vulkan",
   "description": "Working through Vulkan coordinate transformations, perspective projection, and reversed Z.",
   "published": "2026-11-11",
-  "tags": ["Vulkan", "Graphics"],
+  "tags": ["vulkan", "graphics"],
   "draft": false
 }
