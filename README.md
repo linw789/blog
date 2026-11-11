@@ -20,14 +20,27 @@ Open http://127.0.0.1:4321. Rebuild and refresh after edits.
 
 ## Add a post
 
-Create a stable lowercase, hyphenated folder under `content/posts/`:
+Run the scaffold command with a stable lowercase, hyphenated URL slug and an
+optional quoted title:
+
+```sh
+npm run new-post -- my-post "My Post"
+```
+
+It creates `index.md.html` and `post.json` under
+`content/posts/my-post/`. The title defaults to words derived from the slug.
+The publication date defaults to today in Asia/Shanghai (override the time zone
+with `timezone` in `site.json`). Existing post directories are never overwritten.
+New posts start with `draft: true`: edit the content, description, tags, and date,
+then set `draft` to false when ready to publish. Add `updated` on later revisions.
+
+You can also create the same structure manually:
 
 ```text
 content/posts/my-post/
   index.md.html
   post.json
-  images/
-    example.png
+  example.png
 ```
 
 Use your normal standalone Markdeep 2 document with its `<plaintext>` marker.
@@ -53,7 +66,9 @@ published output. Future dates are not a scheduling mechanism: use drafts until
 you are ready to publish. Folder names determine permanent URLs:
 `/posts/my-post/`. Tags are grouped case-insensitively.
 
-Use `![Caption](images/example.png)` for images. Relative paths are preserved.
+Place images alongside the post and use `![Caption](example.png)`. You can also
+create an optional `images/` subdirectory and use `![Caption](images/example.png)`.
+Relative paths are preserved.
 Common image, font, video, and PDF assets are copied recursively. Source files,
 metadata, hidden files, and editing formats such as XCF are not published.
 The original root-level Vulkan files have been preserved; edit the copies under

@@ -2,6 +2,7 @@
   "name": "linwoodwood-blog",
   "private": true,
   "scripts": {
+    "new-post": "node scripts/new-post.cjs",
     "build": "node scripts/build.cjs",
     "preview": "node scripts/preview.cjs",
     "test": "node --test scripts/build.test.cjs"
