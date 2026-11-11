@@ -1,0 +1,254 @@
+<meta charset="utf-8"><script src="https://morgan3d.github.io/markdeep/2/latest/markdeep2.min.js" markdeep="2"></script><plaintext>
+
+# Coordinates and Perspective Projection in Vulkan
+
+## Coordinates
+
+I see many posts online discussing whether Vulkan uses right-handed or left-handed coordinates
+system. But the truth is no where in the Vulkan specification are the words "right hand" or
+"right-hand" found. Vulkan simply doesn't define a right-handed or left-handed coordinates. Instead,
+it defines a series of transformations that convert points in clip coordinates to normalized device
+coordinates (NDC), then to the final framebuffer coordinates which is defined as: "a coordinate
+system in which adjacent pixels’ coordinates differ by 1 in x and/or y, with (0,0) in the upper left
+corner and pixel centers at half-integers."
+
+![vulkan framebuffer coordinates](vulkan-coordinates-000-framebuffer-coordinates.png)
+
+Normalized device coordinates is defined as: "a coordinate space after perspective division is
+applied to clip coordinates, and before the viewport transformation converts them to framebuffer
+coordinates." Below is from Vulkan specification 33.9. Controlling the Viewport on how to convert 
+from NDC to framebuffer coordinates.
+
+> The viewport transformation is determined by the selected viewport’s width and height in pixels,
+> $p_x$ and $p_y$, respectively, and its center ($o_x$, $o_y$) (also in pixels), as well as its
+> depth range min and max determining a depth range scale value $p_z$ and a depth range bias value
+> $o_z$ (defined below). The vertex’s framebuffer coordinates ($x_f$, $y_f$) and depth $z_f$ are
+> given by 
+>
+> $$x_f = (p_x / 2)x_d + o_x$$
+> $$y_f = (p_y / 2)y_d + o_y$$
+> $$z_f = p_z \times z_d + o_z$$
+
+Note that no "left handed/right handed" is mentioned. The spec only gives a set of equations.
+
+Because $x_f \in [0, p_x]$ and $x_f \in [0, p_x]$, we can conclude $x_d \in [-1, 1]$ and $y_d \in
+[-1, 1]$. Note, $p_y/2$ is positive, so $+y_d$ goes in the same direction as $+y_f$, downwords.
+
+![normalized device coordinates](vulkan-coordinates-001-ndc-z-question.png)
+
+What about z axis? [`VkViewport`](https://docs.vulkan.org/refpages/latest/refpages/source/VkViewport.html) gives more
+details on that, particularly, on the depth range:
+
+$$
+o_z =
+\begin{cases}
+\mathrm{minDepth},\\[4pt]
+\dfrac{\mathrm{maxDepth} + \mathrm{minDepth}}{2}, & \text{if } \mathrm{negativeOneToOne} = \mathrm{VK\_TRUE}.
+\end{cases}
+$$
+
+$$
+p_z =
+\begin{cases}
+\mathrm{maxDepth - minDepth},\\[4pt]
+\dfrac{\mathrm{maxDepth} - \mathrm{minDepth}}{2}, & \text{if } \mathrm{negativeOneToOne} = \mathrm{VK\_TRUE}.
+\end{cases}
+$$
+
+where `negativeOneToOne` is defined inside the struct
+[`VkPipelineViewportDepthClipControlCreateInfoEXT`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineViewportDepthClipControlCreateInfoEXT.html).
+
+Also mentioned are the following two notes:
+
+> Despite their names, minDepth can be less than, equal to, or greater than maxDepth.
+>
+> If the VK_EXT_depth_range_unrestricted extension is not enabled, minDepth must be
+> between 0.0 and 1.0, inclusive
+
+Expand $p_z$ and $o_z$ when `negativeOneToOne!=VK_TRUE`, we get 
+
+$$z_f = (\text{maxDepth - minDepth}) z_d + \text{minDepth}$$
+
+from which we get $z_d \in [0, 1]$. Similarly, if we expand $p_z$ and $o_z$ when
+`negativeOneToOne=VK_TRUE`, we get $z_d \in [-1, 1]$. But which direction does +z axis points to,
+towards the viewer or away from the viewer? To know that we need to decide another setting
+`depthCompareOp` in
+[`VkPipelineDepthStencilStateCreateInfo`](https://docs.vulkan.org/spec/latest/chapters/fragops.html#VkPipelineDepthStencilStateCreateInfo).
+Assume `minDepth=1` and `maxDepth=0`, as a result $z_d \in [0, 1]$ is mapped to $z_f \in [1, 0]$. If
+`depthCompareOp=VK_COMPARE_OP_LESS`, vertices with smaller $z_f$ value are in front, therefore +z
+axis should point towards the viewer, if `depthCompareOp=VK_COMPARE_OP_GREATER`, away.
+
+![NDC](vulkan-coordinates-004-ndc-two-z.png width=420)
+
+Other combinations of `minDepth`, `maxDepth` and `depthCompareOp` can change +z axis's direction.
+
+Let's just use `minDepth=1`, `maxDepth=0` and `depthCompareOp=VK_COMPARE_OP_GREATER` for our
+example, which gives a _right-handed_ normalized device coordinates.
+
+To transform points from clip coordinates ($x_c, y_c, z_c, w_c$) to NDC ($x_d, y_d, z_d$), Vulkan
+spec 33.7 Coordinate Transformations says: 
+
+$$
+\begin{bmatrix}
+x_d \\ y_d \\ z_d
+\end{bmatrix}
+=
+\begin{bmatrix}
+\dfrac{x_c}{w_c} \\[4pt]
+\dfrac{y_c}{w_c} \\[4pt]
+\dfrac{z_c}{w_c}
+\end{bmatrix}
+$$
+
+Because every element of $x_c$, $y_c$, $z_c$ is divided by the same $w_c$, we cannot change the
+direction of +z axis without changing the direction of the other two axes, so clip coordinates must
+have the same "handed-ness" as NDC, "right-handed" in our example mentioned above.
+
+## Perspective Projection Matrix
+
+Now the task is to construct a perspective matrix that transforms points in eye/camera coordinates
+to clip coordinates so that after the perspective division the points in NDC have the ranges: $x \in
+[-1, 1], y \in [-1, 1], z \in [0, 1]$.
+
+Assume we have a left-handed coordinates (different from clip coordinates) for eye/camera space, and
+the eye space's +z axis goes through the center of the near plane.
+
+![perspective frustum side and top views](vulkan-coordinates-005-pers-frustum-xy.png width=600)
+
+$n_x, n_y$ are half-width and half-height of the viewport, and $n, f$ are the z values of the
+near and far planes.
+
+To project ($x_e, y_e, z_e$) onto the near plane, we can use ratio of similar triangles to get
+
+$$\frac{y^{\prime}_e}{y_e} = \frac{n}{z_e} \Rightarrow y^{\prime}_e = \frac{n \cdot y_e}{z_e}$$
+$$\frac{x^{\prime}_e}{x_e} = \frac{n}{z_e} \Rightarrow x^{\prime}_e = \frac{n \cdot x_e}{z_e}$$
+
+A projected point's x coordinate need to be mapped to [-1, 1] in NDC. Because in our case +y axis
+points upwrds in eye coordinates (opposite of +y axis in NDC), its y coordinate in eye space need to
+be mapped to [1, -1] in NDC.
+
+![scaling $y_e$ and $x_e$ to -1,+1](vulkan-coordinates-006-eye-coordinates-xy.png)
+
+$$ y_d = \frac{-1 - 1}{n_y - (-n_y)} \cdot y^{\prime}_e = \frac{y^{\prime}_e}{-n_y} $$
+$$ x_d = \frac{1 - (-1)}{n_x - (-n_x)} \cdot x^{\prime}_e = \frac{x^{\prime}_e}{n_x} $$
+
+Expand $x^{\prime}_e$ and $y^{\prime}_e$ in terms of $x_e$ and $y_e$, we get:
+
+$$ y_d = \frac{n \cdot y_e}{-n_y \cdot z_e} $$
+$$ x_d = \frac{n \cdot x_e}{n_x \cdot z_e} $$
+
+To transform from clip coordinates to NDC, both $x_c$ and $y_c$ need to be divided by the same
+$w_c$. Base on this, we can deduce $w_c = z_e$ and $y_c = \frac{n}{-n_y}\cdot y_e$, $x_c =
+\frac{n}{n_x}\cdot x_e$. We now can construct the perspective projection matrix partially.
+
+$$
+\begin{bmatrix}
+x_c \\ y_c \\ z_c \\ w_c
+\end{bmatrix}
+=
+\begin{bmatrix}
+\frac{n}{n_x} & 0 & 0 & 0 \\
+0 & \frac{n}{-n_y} & 0 & 0 \\
+\cdot & \cdot & \cdot & \cdot \\
+0 & 0 & 1 & 0
+\end{bmatrix}
+\begin{bmatrix}
+x_e \\ y_e \\ z_e \\ 1
+\end{bmatrix}
+$$
+
+To get the third row, we first observe that all points on a plane perpendicular to the near plane
+should have the same $z_c$, therefore $z_c$ is independent of $x_e$ and $y_e$. Now we have:
+
+$$
+\begin{bmatrix}
+x_c \\ y_c \\ z_c \\ w_c
+\end{bmatrix}
+=
+\begin{bmatrix}
+\frac{n}{n_x} & 0 & 0 & 0 \\
+0 & \frac{n}{-n_y} & 0 & 0 \\
+0 & 0 & a & b \\
+0 & 0 & 1 & 0
+\end{bmatrix}
+\begin{bmatrix}
+x_e \\ y_e \\ z_e \\ 1
+\end{bmatrix}
+$$
+
+$$ z_d = \frac{z_c}{w_c} = \frac{az_e + b}{z_e} $$
+
+Because $z_e \in [n, f]$ is mapped to $z_d \in [0, 1]$, we get:
+
+$$
+\begin{aligned}
+\frac{a n + b}{n} &= 0 \\[4pt]
+\frac{a f + b}{f} &= 1
+\end{aligned}
+\quad\Longrightarrow\quad
+\begin{aligned}
+a &= \frac{f}{f - n} \\[4pt]
+b &= -\frac{f n}{f - n}
+\end{aligned}
+$$
+
+Finally we have our perspective projection matrix:
+
+$$
+\begin{bmatrix}
+\frac{n}{n_x} & 0 & 0 & 0 \\
+0 & \frac{n}{-n_y} & 0 & 0 \\
+0 & 0 & \frac{f}{f - n} & -\frac{f n}{f - n} \\
+0 & 0 & 1 & 0
+\end{bmatrix}
+$$
+
+The point of this exercise is to show you that no matter in which "handed-ness" of coordinate system
+is your 3D scene, you can construct a perspective matrix that transforms it to the final framebuffer
+coordinates required by Vulkan (given your choise of `minDepth`, `maxDepth` and `depthCompareOp`).
+
+## Reverse Z and Infinite Far Plane
+
+The befinits of using reversed z for depth and infinity for far plane can be found many places
+online, the following is just for my own memory.
+
+Instead of mapping $z_e \in [n, f]$ to $z_d \in [0, 1]$, we map it to $z_d \in [1, 0]$.
+
+$$
+\begin{aligned}
+\frac{a n + b}{n} &= 1 \\[4pt]
+\frac{a f + b}{f} &= 0
+\end{aligned}
+\Rightarrow
+\begin{aligned}
+a &= \frac{n}{n - f} \\[4pt]
+b &= -\frac{f n}{n - f}
+\end{aligned}
+$$
+
+$$
+\begin{aligned}
+a = \lim_{f\to\infty}\frac{n}{n - f} &= 0 \\[4pt]
+b = \lim_{f\to\infty}-\frac{f n}{n - f} &= n
+\end{aligned}
+$$
+
+$$
+M_{perspective} =
+\begin{bmatrix}
+\frac{n}{n_x} & 0 & 0 & 0 \\
+0 & \frac{n}{-n_y} & 0 & 0 \\
+0 & 0 & 0 & n \\
+0 & 0 & 1 & 0
+\end{bmatrix}
+$$
+
+__Note__, since z is reversed in NDC, vertices with greater $z_d$ values should be in front. If we
+set `minDepth=0` and `maxDepth=1`, $z_d \in [0, 1]$ is mapped to $z_f \in [0, 1]$, we should set
+`depthCompareOp=VK_COMPARE_OP_GREATER`.
+
+## References: 
+- [List of Vulkan depth related topics](https://docs.vulkan.org/guide/latest/depth.html)
+- [Visualizing Depth Precision](https://developer.nvidia.com/blog/visualizing-depth-precision/) - Nathan Reed
+- [OpenGL Projection Matrix](https://songho.ca/opengl/gl_projectionmatrix.html) - Song Ho
+- [The new Vulkan Coordinate System](https://matthewwellings.com/blog/the-new-vulkan-coordinate-system) - Matthew Wellings
