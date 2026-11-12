@@ -31,7 +31,7 @@ from NDC to framebuffer coordinates.
 
 Note that no "left handed/right handed" is mentioned. The spec only gives a set of equations.
 
-Because $x_f \in [0, p_x]$ and $x_f \in [0, p_x]$, we can conclude $x_d \in [-1, 1]$ and $y_d \in
+Because $x_f \in [0, p_x]$ and $y_f \in [0, p_y]$, we can conclude $x_d \in [-1, 1]$ and $y_d \in
 [-1, 1]$. Note, $p_y/2$ is positive, so $+y_d$ goes in the same direction as $+y_f$, downwords.
 
 ![normalized device coordinates](vulkan-coordinates-001-ndc-z-question.png)
@@ -74,16 +74,15 @@ from which we get $z_d \in [0, 1]$. Similarly, if we expand $p_z$ and $o_z$ when
 towards the viewer or away from the viewer? To know that we need to decide another setting
 `depthCompareOp` in
 [`VkPipelineDepthStencilStateCreateInfo`](https://docs.vulkan.org/spec/latest/chapters/fragops.html#VkPipelineDepthStencilStateCreateInfo).
-Assume `minDepth=1` and `maxDepth=0`, as a result $z_d \in [0, 1]$ is mapped to $z_f \in [1, 0]$. If
+Assume `minDepth=1` and `maxDepth=0`, then $z_d \in [0, 1]$ is mapped to $z_f \in [1, 0]$. If
 `depthCompareOp=VK_COMPARE_OP_LESS`, vertices with smaller $z_f$ value are in front, therefore +z
 axis should point towards the viewer, if `depthCompareOp=VK_COMPARE_OP_GREATER`, away.
 
 ![NDC](vulkan-coordinates-004-ndc-two-z.png width=420)
 
 Other combinations of `minDepth`, `maxDepth` and `depthCompareOp` can change +z axis's direction.
-
-Let's just use `minDepth=1`, `maxDepth=0` and `depthCompareOp=VK_COMPARE_OP_GREATER` for our
-example, which gives a _right-handed_ normalized device coordinates.
+Because we get to choose the values of `minDepth`, `maxDepth` and `depthCompareOp`, the direction of
++z axis is largely irrelevant as long as we correctly transform $z$ to $z_d \in [0, 1]$.
 
 To transform points from clip coordinates ($x_c, y_c, z_c, w_c$) to NDC ($x_d, y_d, z_d$), Vulkan
 spec 33.7 Coordinate Transformations says: 
@@ -102,7 +101,7 @@ $$
 
 Because every element of $x_c$, $y_c$, $z_c$ is divided by the same $w_c$, we cannot change the
 direction of +z axis without changing the direction of the other two axes, so clip coordinates must
-have the same "handed-ness" as NDC, "right-handed" in our example mentioned above.
+have the same "handed-ness" as NDC.
 
 ## Perspective Projection Matrix
 
@@ -203,9 +202,20 @@ $$
 \end{bmatrix}
 $$
 
+Now we need to carefully choose values for `minDepth`, `maxDepth` and `depthCompareOp` to make depth
+test work correctly. Remember, Vulkan defines the following equation to map $z_d$ to $z_f$ when
+`negativeOneToOne!=VK_TRUE`:
+
+$$ z_f = (maxDepth - minDepth)z_d + minDepth $$
+
+- If `minDepth=0` and `maxDepth=1`, we get $z_f \in [0, 1]$, smaller $z_d$ (closer to the near
+  plane) is mapped to smaller $z_f$, so we should set `depthCompareDepth=VK_COMPARE_OP_LESS`. 
+- If `minDepth=1` and `maxDepth=0`, we get $z_f \in [1, 0]$, smaller $z_d$ (closer to the near
+  plane) is mapped to greater $z_f$, so we should set `depthCompareDepth=VK_COMPARE_OP_GREATER`. 
+
 The point of this exercise is to show you that no matter in which "handed-ness" of coordinate system
 is your 3D scene, you can construct a perspective matrix that transforms it to the final framebuffer
-coordinates required by Vulkan (given your choise of `minDepth`, `maxDepth` and `depthCompareOp`).
+coordinates required by Vulkan (with the correct `minDepth`, `maxDepth` and `depthCompareOp`).
 
 ## Reverse Z and Infinite Far Plane
 
@@ -243,9 +253,9 @@ M_{perspective} =
 \end{bmatrix}
 $$
 
-__Note__, since z is reversed in NDC, vertices with greater $z_d$ values should be in front. If we
-set `minDepth=0` and `maxDepth=1`, $z_d \in [0, 1]$ is mapped to $z_f \in [0, 1]$, we should set
-`depthCompareOp=VK_COMPARE_OP_GREATER`.
+__Note__, since z is reversed in NDC, vertices with greater $z_d$ values are closer to the near
+plane. If we set `minDepth=0` and `maxDepth=1`, $z_d \in [0, 1]$ is mapped to $z_f \in [0, 1]$, we
+should set `depthCompareOp=VK_COMPARE_OP_GREATER`.
 
 ## References: 
 - [List of Vulkan depth related topics](https://docs.vulkan.org/guide/latest/depth.html)
