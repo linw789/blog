@@ -273,11 +273,13 @@ where $x_i$ and $y_i$ are the x,y coordinates of the ith vertex of a triangle. I
 triangle edges $e_1 = p_1 - p_0$ and $e_2 = p_2 - p_0$, and $c_z$ as z component of the result of
 cross product of $e_1$ and $e_2$, we get $a = -c_z$.
 
-Because cross product uses right-hand rule, if the resulting area is positive, the triangle winding
-should be counter-clockwise, otherwise clockwise. This is reversed in framebuffer coordinates
-because Vulkan uses $a = -c_z$ (note the minus sign). However, the +y axis of the framebuffer
-coordinates points downwards, if your world space has +y axis pointing upwards (most likely), then
-the rule stays the same. This is way [VkFrontFace](https://docs.vulkan.org/refpages/latest/refpages/source/VkFrontFace.html)
+The cross product of +x axis and +y axis is +z axis. In the framebuffer coordinates, because the +y
+axis points downwards, the winding from +x axis to +y axis is clockwise, therefore triangles with
+clockwise winding will have position area. However, notice that there is a minus sign in $a = -c_z$,
+which inverses the previous statement and we get triangles with counter-clockwise winding have
+positive area.
+
+This is why [VkFrontFace](https://docs.vulkan.org/refpages/latest/refpages/source/VkFrontFace.html)
 says
 
 - VK_FRONT_FACE_COUNTER_CLOCKWISE specifies that a triangle with positive area is considered
