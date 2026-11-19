@@ -257,6 +257,33 @@ __Note__, since z is reversed in NDC, vertices with greater $z_d$ values are clo
 plane. If we set `minDepth=0` and `maxDepth=1`, $z_d \in [0, 1]$ is mapped to $z_f \in [0, 1]$, we
 should set `depthCompareOp=VK_COMPARE_OP_GREATER`.
 
+## Winding
+
+According to Vulkan spec [Rasterization Polygons](https://docs.vulkan.org/spec/latest/chapters/primsrast.html#primsrast-polygons),
+
+> The first step of polygon rasterization is to determine whether the triangle is back-facing or
+> front-facing. This determination is made based on the sign of the (clipped or unclipped) polygon’s
+> area computed in framebuffer coordinates.
+
+Simplified formula to calculate the signed area:
+
+$$ a = -\frac{1}{2}((x_0y_1 - x_1y_0) + (x_1y_2 - x_2y_1) + (x_2y_0 - x_0y_2)) $$
+
+where $x_i$ and $y_i$ are the x,y coordinates of the ith vertex of a triangle. If we take two
+triangle edges $e_1 = p_1 - p_0$ and $e_2 = p_2 - p_0$, and $c_z$ as z component of the result of
+cross product of $e_1$ and $e_2$, we get $a = -c_z$.
+
+Because cross product uses right-hand rule, if the resulting area is positive, the triangle winding
+should be counter-clockwise, otherwise clockwise. This is reversed in framebuffer coordinates
+because Vulkan uses $a = -c_z$ (note the minus sign). However, the +y axis of the framebuffer
+coordinates points downwards, if your world space has +y axis pointing upwards (most likely), then
+the rule stays the same. This is way [VkFrontFace](https://docs.vulkan.org/refpages/latest/refpages/source/VkFrontFace.html)
+says
+
+- VK_FRONT_FACE_COUNTER_CLOCKWISE specifies that a triangle with positive area is considered
+  front-facing.
+- VK_FRONT_FACE_CLOCKWISE specifies that a triangle with negative area is considered front-facing.
+
 ## References: 
 - [List of Vulkan depth related topics](https://docs.vulkan.org/guide/latest/depth.html)
 - [Visualizing Depth Precision](https://developer.nvidia.com/blog/visualizing-depth-precision/) - Nathan Reed
