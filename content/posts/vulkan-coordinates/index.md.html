@@ -277,9 +277,7 @@ The cross product of +x axis and +y axis is +z axis. In the framebuffer coordina
 axis points downwards, the winding from +x axis to +y axis is clockwise, therefore triangles with
 clockwise winding will have positive area. However, notice that there is a minus sign in $a = -c_z$,
 which inverses the previous statement and we get triangles with counter-clockwise winding have
-positive area.
-
-This is why [VkFrontFace](https://docs.vulkan.org/refpages/latest/refpages/source/VkFrontFace.html)
+positive area. This is why [VkFrontFace](https://docs.vulkan.org/refpages/latest/refpages/source/VkFrontFace.html)
 says
 
 - VK_FRONT_FACE_COUNTER_CLOCKWISE specifies that a triangle with positive area is considered
